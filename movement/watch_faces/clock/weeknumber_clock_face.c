@@ -50,7 +50,9 @@ void weeknumber_clock_face_activate(movement_settings_t *settings, void *context
 
     if (watch_tick_animation_is_running()) watch_stop_tick_animation();
 
-    if (settings->bit.clock_mode_24h && !settings->bit.clock_24h_leading_zero) watch_set_indicator(WATCH_INDICATOR_24H);
+#ifndef CLOCK_FACE_24H_ONLY
+    if (settings->bit.clock_mode_24h) watch_set_indicator(WATCH_INDICATOR_24H);
+#endif
 
     // handle chime indicator
     if (state->signal_enabled) watch_set_indicator(WATCH_INDICATOR_BELL);
@@ -101,6 +103,7 @@ bool weeknumber_clock_face_loop(movement_event_t event, movement_settings_t *set
                 sprintf(buf, "%02d%02d", date_time.unit.minute, watch_utility_get_weeknumber(date_time.unit.year, date_time.unit.month, date_time.unit.day));
             } else {
                 // other stuff changed; let's do it all.
+#ifndef CLOCK_FACE_24H_ONLY
                 if (!settings->bit.clock_mode_24h) {
                     // if we are in 12 hour mode, do some cleanup.
                     if (date_time.unit.hour < 12) {
@@ -110,9 +113,13 @@ bool weeknumber_clock_face_loop(movement_event_t event, movement_settings_t *set
                     }
                     date_time.unit.hour %= 12;
                     if (date_time.unit.hour == 0) date_time.unit.hour = 12;
-                } else if (settings->bit.clock_24h_leading_zero && date_time.unit.hour < 10) {
+                }
+#endif
+
+                if (settings->bit.clock_mode_24h && settings->bit.clock_24h_leading_zero && date_time.unit.hour < 10) {
                     set_leading_zero = true;
                 }
+
                 pos = 0;
                 if (event.event_type == EVENT_LOW_ENERGY_UPDATE) {
                     if (!watch_tick_animation_is_running()) watch_start_tick_animation(500);
@@ -122,8 +129,10 @@ bool weeknumber_clock_face_loop(movement_event_t event, movement_settings_t *set
                 }
             }
             watch_display_string(buf, pos);
+
             if (set_leading_zero)
                 watch_display_string("0", 4);
+
             // handle alarm indicator
             if (state->alarm_enabled != settings->bit.alarm_enabled) _update_alarm_indicator(settings->bit.alarm_enabled, state);
             break;
@@ -138,8 +147,7 @@ bool weeknumber_clock_face_loop(movement_event_t event, movement_settings_t *set
             movement_play_signal();
             break;
         default:
-            movement_default_loop_handler(event, settings);
-            break;
+            return movement_default_loop_handler(event, settings);
     }
 
     return true;
