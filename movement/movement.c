@@ -85,7 +85,7 @@
 #define MOVEMENT_DEFAULT_TIMEOUT_INTERVAL 0
 #endif
 
-// Default to switch to low energy mode after 2 hours
+// Default to switch to low energy mode after 10 minutes
 #ifndef MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL
 #define MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL 2
 #endif
@@ -102,7 +102,7 @@
 movement_state_t movement_state;
 void * watch_face_contexts[MOVEMENT_NUM_FACES];
 watch_date_time scheduled_tasks[MOVEMENT_NUM_FACES];
-const int32_t movement_le_inactivity_deadlines[8] = {INT_MAX, 600, 3600, 7200, 21600, 43200, 86400, 604800};
+const int32_t movement_le_inactivity_deadlines[8] = {INT_MAX, 300, 600, 3600, 7200, 21600, 43200, 86400};
 const int16_t movement_timeout_inactivity_deadlines[4] = {60, 120, 300, 1800};
 movement_event_t event;
 
