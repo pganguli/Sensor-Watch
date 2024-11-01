@@ -79,6 +79,7 @@ bool simple_clock_face_loop(movement_event_t event, movement_settings_t *setting
         case EVENT_ACTIVATE:
         case EVENT_TICK:
         case EVENT_LOW_ENERGY_UPDATE:
+        case EVENT_ALARM_BUTTON_DOWN:
             date_time = watch_rtc_get_date_time();
             previous_date_time = state->previous_date_time;
             state->previous_date_time = date_time.reg;
@@ -98,7 +99,7 @@ bool simple_clock_face_loop(movement_event_t event, movement_settings_t *setting
             if (state->battery_low) watch_set_indicator(WATCH_INDICATOR_LAP);
 
             bool set_leading_zero = false;
-            if ((date_time.reg >> 6) == (previous_date_time >> 6) && event.event_type != EVENT_LOW_ENERGY_UPDATE) {
+            if ((date_time.reg >> 6) == (previous_date_time >> 6) && event.event_type != EVENT_LOW_ENERGY_UPDATE && event.event_type != EVENT_ALARM_BUTTON_DOWN) {
                 // everything before seconds is the same, don't waste cycles setting those segments.
                 watch_display_character_lp_seconds('0' + date_time.unit.second / 10, 8);
                 watch_display_character_lp_seconds('0' + date_time.unit.second % 10, 9);
@@ -106,7 +107,11 @@ bool simple_clock_face_loop(movement_event_t event, movement_settings_t *setting
             } else if ((date_time.reg >> 12) == (previous_date_time >> 12) && event.event_type != EVENT_LOW_ENERGY_UPDATE) {
                 // everything before minutes is the same.
                 pos = 6;
-                sprintf(buf, "%02d%02d", date_time.unit.minute, date_time.unit.second);
+                if (event.event_type != EVENT_ALARM_BUTTON_DOWN) {
+                    sprintf(buf, "%02d%02d", date_time.unit.minute, date_time.unit.second);
+                } else {
+                    sprintf(buf, "%02d%02d", date_time.unit.minute, watch_utility_get_weeknumber(date_time.unit.year, date_time.unit.month, date_time.unit.day));
+                }
             } else {
                 // other stuff changed; let's do it all.
 #ifndef CLOCK_FACE_24H_ONLY
