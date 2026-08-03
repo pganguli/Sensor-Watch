@@ -35,6 +35,10 @@
 #include "watch.h"
 #include "watch_utility.h"
 #include "watch_private_display.h"
+// For CLOCK_FACE_24H_ONLY. Included without defining MOVEMENT_CONFIG_DEFINE_FACES, so
+// this pulls in the build-time flags only, not the watch_faces[] table (which only
+// movement.c may define).
+#include "movement_config.h"
 
 // 2.2 volts will happen when the battery has maybe 5-10% remaining?
 // we can refine this later.

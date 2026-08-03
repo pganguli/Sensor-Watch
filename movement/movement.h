@@ -63,7 +63,9 @@ typedef union {
         bool clock_24h_leading_zero : 1;    // indicates whether clock should leading zero to indicate 24 hour mode.
         bool use_imperial_units : 1;        // indicates whether to use metric units (the default) or imperial.
         bool alarm_enabled : 1;             // indicates whether there is at least one alarm enabled.
-        uint8_t reserved : 5;               // room for more preferences if needed.
+        bool hourly_chime_enabled : 1;      // indicates whether faces that implement an hourly chime should sound it.
+        bool dst_enabled : 1;               // if true, apply the DST offset from movement_timezone_dst_deltas to zones that observe DST.
+        uint8_t reserved : 3;               // room for more preferences if needed.
     } bit;
     uint32_t reg;
 } movement_settings_t;
@@ -128,7 +130,21 @@ typedef struct {
     uint8_t subsecond;
 } movement_event_t;
 
+// Number of entries in the time zone table. Every parallel table (offsets, DST deltas,
+// and each face's zone-name list) must agree with this; movement.c and the faces assert
+// it at compile time, so a table edit that misses a sibling fails the build rather than
+// silently indexing off the end at runtime.
+#define MOVEMENT_NUM_TIME_ZONES 39
+
+// Raw standard-time UTC offsets, in minutes. Prefer movement_get_timezone_offset_for_zone()
+// over indexing this directly: on its own it ignores the wearer's DST preference.
 extern const int16_t movement_timezone_offsets[];
+// Additive offset (in minutes) to apply to movement_timezone_offsets[zone] when
+// movement_settings_t.bit.dst_enabled is true. Zero for zones that don't observe DST.
+extern const int16_t movement_timezone_dst_deltas[];
+// Abbreviated zone names, parallel to the tables above. Faces generally show only the
+// first two characters, e.g. with a "%.2s" conversion.
+extern const char * const movement_timezone_names[];
 extern const char movement_valid_position_0_chars[];
 extern const char movement_valid_position_1_chars[];
 
@@ -312,5 +328,35 @@ void movement_play_alarm(void);
 void movement_play_alarm_beeps(uint8_t rounds, BuzzerNote alarm_note);
 
 uint8_t movement_claim_backup_register(void);
+
+/** @brief Effective UTC offset of a time zone, in minutes, honoring the wearer's DST preference.
+  * @details Any face doing time zone math should use this rather than indexing
+  *          movement_timezone_offsets directly. When settings->bit.dst_enabled is set, the RTC
+  *          itself holds DST-shifted local time for the home zone, so a face that converts using
+  *          the bare standard-time offset will compute an instant that is wrong by the DST delta.
+  * @param timezone_index An index into the time zone table.
+  * @param settings A pointer to the global Movement settings.
+  * @return The zone's offset from UTC in minutes, including the DST delta when DST is enabled.
+  */
+int16_t movement_get_timezone_offset_for_zone(uint8_t timezone_index, movement_settings_t *settings);
+
+/** @brief Effective UTC offset of the wearer's own time zone (settings->bit.time_zone), in minutes.
+  * @details Convenience wrapper around movement_get_timezone_offset_for_zone for the common case
+  *          of converting the RTC's own wall-clock reading to or from UTC.
+  * @param settings A pointer to the global Movement settings.
+  * @return The home zone's offset from UTC in minutes, including the DST delta when DST is enabled.
+  */
+int16_t movement_get_timezone_offset(movement_settings_t *settings);
+
+/** @brief Assert the 24H indicator to match the wearer's clock-mode preference.
+  * @details Call this from any face that displays a time of day. It always either sets or
+  *          clears the indicator, never just one: indicators are global LCD state that
+  *          persists across faces, so a face that only ever sets will inherit a stale lit
+  *          segment from whichever face ran before it. Under CLOCK_FACE_24H_ONLY the mode is
+  *          fixed at build time, so the indicator would be permanently lit while conveying
+  *          nothing, and this keeps it off instead.
+  * @param settings A pointer to the global Movement settings.
+  */
+void movement_update_24h_indicator(movement_settings_t *settings);
 
 #endif // MOVEMENT_H_

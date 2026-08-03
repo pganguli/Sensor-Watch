@@ -35,6 +35,10 @@
 #include "movement.h"
 #include "shell.h"
 
+// Only movement.c defines the watch_faces[] table; see movement_config.h for why
+// that has to be gated on this macro rather than just included plainly.
+#define MOVEMENT_CONFIG_DEFINE_FACES
+
 #ifndef MOVEMENT_FIRMWARE
 #include "movement_config.h"
 #elif MOVEMENT_FIRMWARE == MOVEMENT_FIRMWARE_STANDARD
@@ -85,6 +89,17 @@
 #define MOVEMENT_DEFAULT_TIMEOUT_INTERVAL 0
 #endif
 
+// Default to always returning to face 0 on timeout, regardless of what the
+// active face's own EVENT_TIMEOUT handling does (or doesn't do).
+#ifndef MOVEMENT_DEFAULT_TIMEOUT_ALWAYS
+#define MOVEMENT_DEFAULT_TIMEOUT_ALWAYS true
+#endif
+
+// Default to standard time (no DST shift) until the wearer manually toggles it.
+#ifndef MOVEMENT_DEFAULT_DST_ENABLED
+#define MOVEMENT_DEFAULT_DST_ENABLED false
+#endif
+
 // Default to switch to low energy mode after 2 hours
 #ifndef MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL
 #define MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL 2
@@ -130,25 +145,142 @@ const int16_t movement_timezone_offsets[] = {
     720,    // 20 :  12:00:00 (New Zealand Standard Time)
     765,    // 21 :  12:45:00 (Chatham Standard Time)
     780,    // 22 :  13:00:00 (Tonga Time)
-    825,    // 23 :  13:45:00 (Chatham Daylight Time)
-    840,    // 24 :  14:00:00 (Line Islands Time)
-    -720,   // 25 : -12:00:00 (Baker Island Time)
-    -660,   // 26 : -11:00:00 (Niue Time)
-    -600,   // 27 : -10:00:00 (Hawaii-Aleutian Standard Time)
-    -570,   // 28 :  -9:30:00 (Marquesas Islands Time)
-    -540,   // 29 :  -9:00:00 (Alaska Standard Time)
-    -480,   // 30 :  -8:00:00 (Pacific Standard Time)
-    -420,   // 31 :  -7:00:00 (Mountain Standard Time)
-    -360,   // 32 :  -6:00:00 (Central Standard Time)
-    -300,   // 33 :  -5:00:00 (Eastern Standard Time)
-    -270,   // 34 :  -4:30:00 (Venezuelan Standard Time)
-    -240,   // 35 :  -4:00:00 (Atlantic Standard Time)
-    -210,   // 36 :  -3:30:00 (Newfoundland Standard Time)
-    -180,   // 37 :  -3:00:00 (Brasilia Time)
-    -150,   // 38 :  -2:30:00 (Newfoundland Daylight Time)
-    -120,   // 39 :  -2:00:00 (Fernando de Noronha Time)
-    -60,    // 40 :  -1:00:00 (Azores Standard Time)
+    840,    // 23 :  14:00:00 (Line Islands Time)
+    -720,   // 24 : -12:00:00 (Baker Island Time)
+    -660,   // 25 : -11:00:00 (Niue Time)
+    -600,   // 26 : -10:00:00 (Hawaii-Aleutian Standard Time)
+    -570,   // 27 :  -9:30:00 (Marquesas Islands Time)
+    -540,   // 28 :  -9:00:00 (Alaska Standard Time)
+    -480,   // 29 :  -8:00:00 (Pacific Standard Time)
+    -420,   // 30 :  -7:00:00 (Mountain Standard Time)
+    -360,   // 31 :  -6:00:00 (Central Standard Time)
+    -300,   // 32 :  -5:00:00 (Eastern Standard Time)
+    -270,   // 33 :  -4:30:00 (Venezuelan Standard Time)
+    -240,   // 34 :  -4:00:00 (Atlantic Standard Time)
+    -210,   // 35 :  -3:30:00 (Newfoundland Standard Time)
+    -180,   // 36 :  -3:00:00 (Brasilia Time)
+    -120,   // 37 :  -2:00:00 (Fernando de Noronha Time)
+    -60,    // 38 :  -1:00:00 (Azores Standard Time)
 };
+
+// Additive offset (minutes) to apply to movement_timezone_offsets[zone] when
+// settings->bit.dst_enabled is true. Zero for zones that don't observe DST.
+// Indices line up with movement_timezone_offsets above.
+const int16_t movement_timezone_dst_deltas[] = {
+    0,      //  0 : UTC
+    60,     //  1 : CET -> CEST
+    0,      //  2 : SAST
+    0,      //  3 : ARST
+    0,      //  4 : IRST
+    0,      //  5 : GET
+    0,      //  6 : AFT
+    0,      //  7 : PKT
+    0,      //  8 : IST
+    0,      //  9 : NPT
+    0,      // 10 : KGT
+    0,      // 11 : MYST
+    0,      // 12 : THA
+    0,      // 13 : CST (China / AWST)
+    0,      // 14 : ACWS
+    0,      // 15 : JST
+    60,     // 16 : ACST -> ACDT
+    60,     // 17 : AEST -> AEDT
+    30,     // 18 : LHST -> LHDT
+    0,      // 19 : SBT
+    60,     // 20 : NZST -> NZDT
+    60,     // 21 : CHAS -> CHAD/CHADT
+    0,      // 22 : TOT
+    0,      // 23 : LINT
+    0,      // 24 : BIT
+    0,      // 25 : NUT
+    60,     // 26 : HST -> HDT
+    0,      // 27 : MART
+    60,     // 28 : AKST -> AKDT
+    60,     // 29 : PST -> PDT
+    60,     // 30 : MST -> MDT
+    60,     // 31 : CST (US Central) -> CDT
+    60,     // 32 : EST -> EDT
+    0,      // 33 : VET
+    60,     // 34 : AST -> ADT
+    60,     // 35 : NST -> NDT
+    0,      // 36 : BRT
+    0,      // 37 : FNT
+    60,     // 38 : AZOT -> AZOST
+};
+
+// Abbreviated zone names, parallel to the tables above. Faces generally show only the
+// first two characters. Declared `const char * const` so both the pointers and the strings
+// live in flash; a plain `const char *[]` would put the pointer array in RAM.
+const char * const movement_timezone_names[] = {
+    "UTC",  //  0 :   0:00:00 (UTC)
+    "CET",  //  1 :   1:00:00 (Central European Time)
+    "SAST", //  2 :   2:00:00 (South African Standard Time)
+    "ARST", //  3 :   3:00:00 (Arabia Standard Time)
+    "IRST", //  4 :   3:30:00 (Iran Standard Time)
+    "GET",  //  5 :   4:00:00 (Georgia Standard Time)
+    "AFT",  //  6 :   4:30:00 (Afghanistan Time)
+    "PKT",  //  7 :   5:00:00 (Pakistan Standard Time)
+    "IST",  //  8 :   5:30:00 (Indian Standard Time)
+    "NPT",  //  9 :   5:45:00 (Nepal Time)
+    "KGT",  // 10 :   6:00:00 (Kyrgyzstan time)
+    "MYST", // 11 :   6:30:00 (Myanmar Time)
+    "THA",  // 12 :   7:00:00 (Thailand Standard Time)
+    "CST",  // 13 :   8:00:00 (China Standard Time, Australian Western Standard Time)
+    "ACWS", // 14 :   8:45:00 (Australian Central Western Standard Time)
+    "JST",  // 15 :   9:00:00 (Japan Standard Time, Korea Standard Time)
+    "ACST", // 16 :   9:30:00 (Australian Central Standard Time)
+    "AEST", // 17 :  10:00:00 (Australian Eastern Standard Time)
+    "LHST", // 18 :  10:30:00 (Lord Howe Standard Time)
+    "SBT",  // 19 :  11:00:00 (Solomon Islands Time)
+    "NZST", // 20 :  12:00:00 (New Zealand Standard Time)
+    "CHAS", // 21 :  12:45:00 (Chatham Standard Time)
+    "TOT",  // 22 :  13:00:00 (Tonga Time)
+    "LINT", // 23 :  14:00:00 (Line Islands Time)
+    "BIT",  // 24 : -12:00:00 (Baker Island Time)
+    "NUT",  // 25 : -11:00:00 (Niue Time)
+    "HST",  // 26 : -10:00:00 (Hawaii-Aleutian Standard Time)
+    "MART", // 27 :  -9:30:00 (Marquesas Islands Time)
+    "AKST", // 28 :  -9:00:00 (Alaska Standard Time)
+    "PST",  // 29 :  -8:00:00 (Pacific Standard Time)
+    "MST",  // 30 :  -7:00:00 (Mountain Standard Time)
+    "CST",  // 31 :  -6:00:00 (Central Standard Time)
+    "EST",  // 32 :  -5:00:00 (Eastern Standard Time)
+    "VET",  // 33 :  -4:30:00 (Venezuelan Standard Time)
+    "AST",  // 34 :  -4:00:00 (Atlantic Standard Time)
+    "NST",  // 35 :  -3:30:00 (Newfoundland Standard Time)
+    "BRT",  // 36 :  -3:00:00 (Brasilia Time)
+    "FNT",  // 37 :  -2:00:00 (Fernando de Noronha Time)
+    "AZOT", // 38 :  -1:00:00 (Azores Standard Time)
+};
+
+_Static_assert(sizeof(movement_timezone_offsets) / sizeof(*movement_timezone_offsets) == MOVEMENT_NUM_TIME_ZONES,
+               "movement_timezone_offsets must have MOVEMENT_NUM_TIME_ZONES entries");
+_Static_assert(sizeof(movement_timezone_dst_deltas) / sizeof(*movement_timezone_dst_deltas) == MOVEMENT_NUM_TIME_ZONES,
+               "movement_timezone_dst_deltas must have one entry per time zone");
+_Static_assert(sizeof(movement_timezone_names) / sizeof(*movement_timezone_names) == MOVEMENT_NUM_TIME_ZONES,
+               "movement_timezone_names must have one entry per time zone");
+
+int16_t movement_get_timezone_offset_for_zone(uint8_t timezone_index, movement_settings_t *settings) {
+    int16_t offset = movement_timezone_offsets[timezone_index];
+    if (settings->bit.dst_enabled) offset += movement_timezone_dst_deltas[timezone_index];
+    return offset;
+}
+
+int16_t movement_get_timezone_offset(movement_settings_t *settings) {
+    return movement_get_timezone_offset_for_zone(settings->bit.time_zone, settings);
+}
+
+void movement_update_24h_indicator(movement_settings_t *settings) {
+#ifdef CLOCK_FACE_24H_ONLY
+    (void) settings;
+    watch_clear_indicator(WATCH_INDICATOR_24H);
+#else
+    if (settings->bit.clock_mode_24h && !settings->bit.clock_24h_leading_zero)
+        watch_set_indicator(WATCH_INDICATOR_24H);
+    else
+        watch_clear_indicator(WATCH_INDICATOR_24H);
+#endif
+}
 
 const char movement_valid_position_0_chars[] = " AaBbCcDdEeFGgHhIiJKLMNnOoPQrSTtUuWXYZ-='+\\/0123456789";
 const char movement_valid_position_1_chars[] = " ABCDEFHlJLNORTtUX-='01378";
@@ -404,6 +536,8 @@ void app_init(void) {
     movement_state.settings.bit.led_green_color = MOVEMENT_DEFAULT_GREEN_COLOR;
     movement_state.settings.bit.button_should_sound = MOVEMENT_DEFAULT_BUTTON_SOUND;
     movement_state.settings.bit.to_interval = MOVEMENT_DEFAULT_TIMEOUT_INTERVAL;
+    movement_state.settings.bit.to_always = MOVEMENT_DEFAULT_TIMEOUT_ALWAYS;
+    movement_state.settings.bit.dst_enabled = MOVEMENT_DEFAULT_DST_ENABLED;
     movement_state.settings.bit.le_interval = MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL;
     movement_state.settings.bit.led_duration = MOVEMENT_DEFAULT_LED_DURATION;
 
@@ -687,6 +821,20 @@ void cb_alarm_btn_interrupt(void) {
 void cb_alarm_btn_extwake(void) {
     // wake up!
     _movement_reset_inactivity_countdown();
+
+    // BTN_ALARM wakes the device via the RTC's tamper/extwake path rather than its normal
+    // edge interrupt, and this callback only fires once, on the edge that woke us -- it
+    // never sees the matching release. By the time app_setup() re-arms the normal edge
+    // interrupt for BTN_ALARM (which happens right after this returns), the wearer may
+    // still be holding the button down; the very next thing the normal interrupt sees is
+    // then that release, misread as a brand new press-and-release with no down edge of its
+    // own. _figure_out_button_event's falling-edge branch measures elapsed time against
+    // alarm_down_timestamp, which was never set for this press, so it computed a bogus
+    // (often near-zero) duration and fired a phantom short click purely from lifting off
+    // the button that woke the watch. Seed the same down-edge bookkeeping the normal rising
+    // edge would have set, so that release is measured correctly instead.
+    _movement_enable_fast_tick_if_needed();
+    movement_state.alarm_down_timestamp = movement_state.fast_ticks + 1;
 }
 
 void cb_alarm_fired(void) {

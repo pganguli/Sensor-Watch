@@ -39,50 +39,6 @@ static bool refresh_face;
 /* Activate refresh of time */
 #define REFRESH_TIME        0xffffffff
 
-/* List of all time zone names */
-const char *zone_names[] = {
-    "UTC",	//  0 :   0:00:00 (UTC)
-    "CET",	//  1 :   1:00:00 (Central European Time)
-    "SAST",	//  2 :   2:00:00 (South African Standard Time)
-    "ARST",	//  3 :   3:00:00 (Arabia Standard Time)
-    "IRST",	//  4 :   3:30:00 (Iran Standard Time)
-    "GET",	//  5 :   4:00:00 (Georgia Standard Time)
-    "AFT",	//  6 :   4:30:00 (Afghanistan Time)
-    "PKT",	//  7 :   5:00:00 (Pakistan Standard Time)
-    "IST",	//  8 :   5:30:00 (Indian Standard Time)
-    "NPT",	//  9 :   5:45:00 (Nepal Time)
-    "KGT",	// 10 :   6:00:00 (Kyrgyzstan time)
-    "MYST",	// 11 :   6:30:00 (Myanmar Time)
-    "THA",	// 12 :   7:00:00 (Thailand Standard Time)
-    "CST",	// 13 :   8:00:00 (China Standard Time, Australian Western Standard Time)
-    "ACWS",	// 14 :   8:45:00 (Australian Central Western Standard Time)
-    "JST",	// 15 :   9:00:00 (Japan Standard Time, Korea Standard Time)
-    "ACST",	// 16 :   9:30:00 (Australian Central Standard Time)
-    "AEST",	// 17 :  10:00:00 (Australian Eastern Standard Time)
-    "LHST",	// 18 :  10:30:00 (Lord Howe Standard Time)
-    "SBT",	// 19 :  11:00:00 (Solomon Islands Time)
-    "NZST",	// 20 :  12:00:00 (New Zealand Standard Time)
-    "CHAS",	// 21 :  12:45:00 (Chatham Standard Time)
-    "TOT",	// 22 :  13:00:00 (Tonga Time)
-    "CHAD",	// 23 :  13:45:00 (Chatham Daylight Time)
-    "LINT",	// 24 :  14:00:00 (Line Islands Time)
-    "BIT",	// 25 : -12:00:00 (Baker Island Time)
-    "NUT",	// 26 : -11:00:00 (Niue Time)
-    "HST",	// 27 : -10:00:00 (Hawaii-Aleutian Standard Time)
-    "MART",	// 28 :  -9:30:00 (Marquesas Islands Time)
-    "AKST",	// 29 :  -9:00:00 (Alaska Standard Time)
-    "PST",	// 30 :  -8:00:00 (Pacific Standard Time)
-    "MST",	// 31 :  -7:00:00 (Mountain Standard Time)
-    "CST",	// 32 :  -6:00:00 (Central Standard Time)
-    "EST",	// 33 :  -5:00:00 (Eastern Standard Time)
-    "VET",	// 34 :  -4:30:00 (Venezuelan Standard Time)
-    "AST",	// 35 :  -4:00:00 (Atlantic Standard Time)
-    "NST",	// 36 :  -3:30:00 (Newfoundland Standard Time)
-    "BRT",	// 37 :  -3:00:00 (Brasilia Time)
-    "NDT",	// 38 :  -2:30:00 (Newfoundland Daylight Time)
-    "FNT",	// 39 :  -2:00:00 (Fernando de Noronha Time)
-    "AZOT",	// 40 :  -1:00:00 (Azores Standard Time)
-};
 
 /* Modulo function */
 static inline unsigned int mod(int a, int b)
@@ -91,20 +47,25 @@ static inline unsigned int mod(int a, int b)
     return r < 0 ? r + b : r;
 }
 
-/* Find the next selected time zone */
+/* Find the next selected time zone.
+ * Bounded on purpose: a "walk until we return to where we started" loop never
+ * terminates if current_zone is out of range, since the walk is taken modulo
+ * NUM_TIME_ZONES and would never revisit it. That cannot happen today (this face
+ * never loads current_zone from a backup register), but it becomes reachable the
+ * moment zone selections are persisted, so don't rely on the invariant. */
 static inline uint8_t find_selected_zone(world_clock2_state_t *state, int direction)
 {
-    uint8_t i = state->current_zone;
+    uint8_t i = mod(state->current_zone, NUM_TIME_ZONES);
 
-    do {
+    for (int n = 0; n < NUM_TIME_ZONES; n++) {
 	i = mod(i + direction, NUM_TIME_ZONES);
-	/* Could not find a selected zone. Return UTC */
-	if (i == state->current_zone) {
-	    return 0;
+	if (state->zones[i].selected) {
+	    return i;
 	}
-    } while (!state->zones[i].selected);
+    }
 
-    return i;
+    /* Could not find a selected zone. Return UTC */
+    return 0;
 }
 
 /* Beep when zone is enabled. An octave up */
@@ -159,7 +120,7 @@ void world_clock2_face_activate(movement_settings_t *settings, void *context)
 
 static bool mode_display(movement_event_t event, movement_settings_t *settings, world_clock2_state_t *state)
 {
-    char buf[11];
+    char buf[16];
     uint8_t pos;
 
     uint32_t timestamp;
@@ -192,11 +153,11 @@ static bool mode_display(movement_event_t event, movement_settings_t *settings, 
 	    if ((date_time.reg >> 6) == (previous_date_time >> 6) && event.event_type != EVENT_LOW_ENERGY_UPDATE) {
                 /* Everything before seconds is the same, don't waste cycles setting those segments. */
 		pos = 8;
-		sprintf(buf, "%02d", date_time.unit.second);
+		snprintf(buf, sizeof(buf), "%02d", date_time.unit.second);
 	    } else if ((date_time.reg >> 12) == (previous_date_time >> 12) && event.event_type != EVENT_LOW_ENERGY_UPDATE) {
 		/* Everything before minutes is the same. */
 		pos = 6;
-		sprintf(buf, "%02d%02d", date_time.unit.minute, date_time.unit.second);
+		snprintf(buf, sizeof(buf), "%02d%02d", date_time.unit.minute, date_time.unit.second);
 	    } else {
 		/* Other stuff changed; Let's do it all. */
 		if (!settings->bit.clock_mode_24h) {
@@ -218,14 +179,14 @@ static bool mode_display(movement_event_t event, movement_settings_t *settings, 
 		    if (!watch_tick_animation_is_running())
 			watch_start_tick_animation(500);
 
-		    sprintf(buf, "%.2s%2d%2d%02d  ",
-                            zone_names[state->current_zone],
+		    snprintf(buf, sizeof(buf), "%.2s%2d%2d%02d  ",
+                            movement_timezone_names[state->current_zone],
                             date_time.unit.day,
                             date_time.unit.hour,
                             date_time.unit.minute);
 		} else {
-		    sprintf(buf, "%.2s%2d%2d%02d%02d",
-			    zone_names[state->current_zone],
+		    snprintf(buf, sizeof(buf), "%.2s%2d%2d%02d%02d",
+			    movement_timezone_names[state->current_zone],
                             date_time.unit.day,
                             date_time.unit.hour,
                             date_time.unit.minute,
@@ -273,7 +234,7 @@ static bool mode_display(movement_event_t event, movement_settings_t *settings, 
 
 static bool mode_settings(movement_event_t event, movement_settings_t *settings, world_clock2_state_t *state)
 {
-    char buf[11];
+    char buf[16];
     int8_t hours, minutes;
     uint8_t zone;
     div_t result;
@@ -298,8 +259,8 @@ static bool mode_settings(movement_event_t event, movement_settings_t *settings,
 	     * to avoid accidentally overflowing the buffer and to suppress
 	     * corresponding compiler warnings.
 	     */
-	    sprintf(buf, "%.2s%2d %c%02d%02d",
-                    zone_names[state->current_zone],
+	    snprintf(buf, sizeof(buf), "%.2s%2d %c%02d%02d",
+                    movement_timezone_names[state->current_zone],
                     state->current_zone % 100,
                     hours < 0 ? '-' : '+',
                     abs(hours) % 24,

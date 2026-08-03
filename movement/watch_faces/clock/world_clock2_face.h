@@ -85,10 +85,14 @@
  *    watch.
  */
 
-/* Number of zones. See movement_timezone_offsets. */
-#define NUM_TIME_ZONES  41
-
 #include "movement.h"
+
+/* Number of zones. Derived from the framework's table rather than restated, so this
+ * can't drift out of sync with movement_timezone_offsets. The name is shared with
+ * simple_world_face.h; both resolve to the same value, so the redefinition is benign. */
+#ifndef NUM_TIME_ZONES
+#define NUM_TIME_ZONES  MOVEMENT_NUM_TIME_ZONES
+#endif
 
 typedef enum {
     WORLD_CLOCK2_MODE_DISPLAY,

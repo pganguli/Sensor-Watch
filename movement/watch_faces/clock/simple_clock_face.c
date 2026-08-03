@@ -27,6 +27,10 @@
 #include "watch.h"
 #include "watch_utility.h"
 #include "watch_private_display.h"
+// For CLOCK_FACE_24H_ONLY. Included without defining MOVEMENT_CONFIG_DEFINE_FACES, so
+// this pulls in the build-time flags only, not the watch_faces[] table (which only
+// movement.c may define).
+#include "movement_config.h"
 
 static void _update_alarm_indicator(bool settings_alarm_enabled, simple_clock_state_t *state) {
     state->alarm_enabled = settings_alarm_enabled;

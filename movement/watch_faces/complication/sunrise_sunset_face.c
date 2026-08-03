@@ -62,7 +62,7 @@ static void _sunrise_sunset_face_update(movement_settings_t *settings, sunrise_s
     }
 
     watch_date_time date_time = watch_rtc_get_date_time(); // the current local date / time
-    watch_date_time utc_now = watch_utility_date_time_convert_zone(date_time, movement_timezone_offsets[settings->bit.time_zone] * 60, 0); // the current date / time in UTC
+    watch_date_time utc_now = watch_utility_date_time_convert_zone(date_time, movement_get_timezone_offset(settings) * 60, 0); // the current date / time in UTC
     watch_date_time scratch_time; // scratchpad, contains different values at different times
     scratch_time.reg = utc_now.reg;
 
@@ -77,7 +77,7 @@ static void _sunrise_sunset_face_update(movement_settings_t *settings, sunrise_s
     // sunriset returns the rise/set times as signed decimal hours in UTC.
     // this can mean hours below 0 or above 31, which won't fit into a watch_date_time struct.
     // to deal with this, we set aside the offset in hours, and add it back before converting it to a watch_date_time.
-    double hours_from_utc = ((double)movement_timezone_offsets[settings->bit.time_zone]) / 60.0;
+    double hours_from_utc = ((double)movement_get_timezone_offset(settings)) / 60.0;
 
     // we loop twice because if it's after sunset today, we need to recalculate to display values for tomorrow.
     for(int i = 0; i < 2; i++) {
@@ -93,7 +93,7 @@ static void _sunrise_sunset_face_update(movement_settings_t *settings, sunrise_s
         }
 
         watch_set_colon();
-        if (settings->bit.clock_mode_24h && !settings->bit.clock_24h_leading_zero) watch_set_indicator(WATCH_INDICATOR_24H);
+        movement_update_24h_indicator(settings);
 
         rise += hours_from_utc;
         set += hours_from_utc;

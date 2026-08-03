@@ -28,10 +28,13 @@
 #include "watch.h"
 #include "watch_utility.h"
 
-char set_time_hackwatch_face_titles[][3] = {"HR", "M1", "SE", "YR", "MO", "DA", "ZO"};
+// Time zone (ZO) is intentionally not configurable here. It's set indirectly by
+// marking a home zone on simple_world_face, which keeps it in sync with the RTC
+// shift performed there; editing it separately here would let the two drift apart.
+static const char set_time_hackwatch_face_titles[][3] = {"HR", "M1", "SE", "YR", "MO", "DA"};
 #define set_time_hackwatch_face_NUM_SETTINGS (sizeof(set_time_hackwatch_face_titles) / sizeof(*set_time_hackwatch_face_titles))
 
-watch_date_time date_time_settings;
+static watch_date_time date_time_settings;
 
 void set_time_hackwatch_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
     (void) settings;
@@ -124,13 +127,6 @@ bool set_time_hackwatch_face_loop(movement_event_t event, movement_settings_t *s
                     } else
                         date_time_settings.unit.day++;
                     break;
-                case 6: // time zone
-                    if (settings->bit.time_zone > 0) {
-                        settings->bit.time_zone--;
-                    } else {
-                        settings->bit.time_zone = 40;
-                    }
-                    break;
             }
             if (current_page != 2) // Do not set time when we are at seconds, it was already set previously
                 watch_rtc_set_date_time(date_time_settings);
@@ -166,10 +162,6 @@ bool set_time_hackwatch_face_loop(movement_event_t event, movement_settings_t *s
                 case 5: // day
                     date_time_settings.unit.day = date_time_settings.unit.day + 1;
                     break;
-                case 6: // time zone
-                    settings->bit.time_zone++;
-                    if (settings->bit.time_zone > 40) settings->bit.time_zone = 0;
-                    break;
             }
             if (date_time_settings.unit.day > days_in_month(date_time_settings.unit.month, date_time_settings.unit.year + WATCH_RTC_REFERENCE_YEAR))
                 date_time_settings.unit.day = 1;
@@ -192,10 +184,9 @@ bool set_time_hackwatch_face_loop(movement_event_t event, movement_settings_t *s
     bool set_leading_zero = false;
     if (current_page < 3) {
         watch_set_colon();
+        movement_update_24h_indicator(settings);
         if (settings->bit.clock_mode_24h) {
-            if (!settings->bit.clock_24h_leading_zero)
-                watch_set_indicator(WATCH_INDICATOR_24H);
-            else if (date_time_settings.unit.hour < 10)
+            if (settings->bit.clock_24h_leading_zero && date_time_settings.unit.hour < 10)
                 set_leading_zero = true;
             sprintf(buf,
                     "%s  %2d%02d%02d",
@@ -216,7 +207,7 @@ bool set_time_hackwatch_face_loop(movement_event_t event, movement_settings_t *s
                 watch_set_indicator(WATCH_INDICATOR_PM);
             }
         }
-    } else if (current_page < 6) {
+    } else {
         watch_clear_colon();
         watch_clear_indicator(WATCH_INDICATOR_24H);
         watch_clear_indicator(WATCH_INDICATOR_PM);
@@ -226,18 +217,6 @@ bool set_time_hackwatch_face_loop(movement_event_t event, movement_settings_t *s
                 date_time_settings.unit.year + 20,
                 date_time_settings.unit.month,
                 date_time_settings.unit.day);
-    } else {
-        if ((event.subsecond / 8 ) % 2) {
-            watch_clear_colon();
-            sprintf(buf, "%s        ", set_time_hackwatch_face_titles[current_page]);
-        } else {
-            watch_set_colon();
-            sprintf(buf,
-                    "%s %3d%02d  ",
-                    set_time_hackwatch_face_titles[current_page],
-                    (int8_t)(movement_timezone_offsets[settings->bit.time_zone] / 60),
-                    (int8_t)(movement_timezone_offsets[settings->bit.time_zone] % 60) * (movement_timezone_offsets[settings->bit.time_zone] < 0 ? -1 : 1));
-        }
     }
 
     // blink up the parameter we're setting

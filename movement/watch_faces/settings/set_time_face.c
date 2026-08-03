@@ -27,13 +27,17 @@
 #include "watch.h"
 #include "watch_utility.h"
 
-#define SET_TIME_FACE_NUM_SETTINGS (7)
-const char set_time_face_titles[SET_TIME_FACE_NUM_SETTINGS][3] = {"HR", "M1", "SE", "YR", "MO", "DA", "ZO"};
+// Time zone (ZO) is intentionally not configurable here. It's set indirectly by
+// marking a home zone on simple_world_face, which keeps it in sync with the RTC
+// shift performed there; editing it separately here would let the two drift apart.
+#define SET_TIME_FACE_NUM_SETTINGS (6)
+const char set_time_face_titles[SET_TIME_FACE_NUM_SETTINGS][3] = {"HR", "M1", "SE", "YR", "MO", "DA"};
 
 static bool _quick_ticks_running;
 
 static void _handle_alarm_button(movement_settings_t *settings, watch_date_time date_time, uint8_t current_page) {
     // handles short or long pressing of the alarm button
+    (void) settings;
 
     switch (current_page) {
         case 0: // hour
@@ -55,10 +59,6 @@ static void _handle_alarm_button(movement_settings_t *settings, watch_date_time 
             date_time.unit.day = date_time.unit.day + 1;
             break;
         }
-        case 6: // time zone
-            settings->bit.time_zone++;
-            if (settings->bit.time_zone > 40) settings->bit.time_zone = 0;
-            break;
     }
     if (date_time.unit.day > days_in_month(date_time.unit.month, date_time.unit.year + WATCH_RTC_REFERENCE_YEAR))
         date_time.unit.day = 1;
@@ -140,19 +140,11 @@ bool set_time_face_loop(movement_event_t event, movement_settings_t *settings, v
             if (date_time.unit.hour < 12) watch_clear_indicator(WATCH_INDICATOR_PM);
             else watch_set_indicator(WATCH_INDICATOR_PM);
         }
-    } else if (current_page < 6) {
+    } else {
         watch_clear_colon();
         watch_clear_indicator(WATCH_INDICATOR_24H);
         watch_clear_indicator(WATCH_INDICATOR_PM);
         sprintf(buf, "%s  %2d%02d%02d", set_time_face_titles[current_page], date_time.unit.year + 20, date_time.unit.month, date_time.unit.day);
-    } else {
-        if (event.subsecond % 2) {
-            watch_clear_colon();
-            sprintf(buf, "%s        ", set_time_face_titles[current_page]);
-        } else {
-            watch_set_colon();
-            sprintf(buf, "%s %3d%02d  ", set_time_face_titles[current_page], (int8_t) (movement_timezone_offsets[settings->bit.time_zone] / 60), (int8_t) (movement_timezone_offsets[settings->bit.time_zone] % 60) * (movement_timezone_offsets[settings->bit.time_zone] < 0 ? -1 : 1));
-        }
     }
 
     // blink up the parameter we're setting

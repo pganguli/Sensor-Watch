@@ -28,6 +28,7 @@
 #include "simple_clock_face.h"
 #include "close_enough_clock_face.h"
 #include "clock_face.h"
+#include "simple_world_face.h"
 #include "world_clock_face.h"
 #include "preferences_face.h"
 #include "set_time_face.h"
